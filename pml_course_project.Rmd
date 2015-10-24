@@ -1,0 +1,118 @@
+---
+title: "Pml course project: predicting weight lifting exercise"
+output: html_document
+toc: false
+theme: flatly
+---
+
+
+#### Overview
+
+In this document we built a model to predict how well a weight lifting exercise is executed. Three models were considered:  
+
+1. predicting with trees
+2. random forest
+3. boosting
+
+The models were trained using 5-fold cross validation with the R Caret package. The models were trained on 70% of the data set. The other 30% of the dataset was used to validate the models. 
+
+We found that the random forest model performed the best.  The random forest model has an out of sample error of 0.7%.
+
+The data for this project come from this source: [http://groupware.les.inf.puc-rio.br/har](http://groupware.les.inf.puc-rio.br/har).
+
+
+#### Preparing the data
+
+To get a dataset that we can use to train the models the raw data set is cleaned. When loading the data we replace "#DIV/0" strings with NA. After inspecting the data we decide to drop the first seven columns which are describing variables and not predictor variables. We convert all the predictor variables to numeric. Next, we drop the summary variables because they can't contain any new information. Finally we remove all the variables which have missing values.
+
+```{r, results='hide', echo=TRUE, warning=FALSE, message=FALSE}
+library(knitr)
+library(rpart)
+library(gbm)
+library(randomForest)
+library(caret)
+library(plyr)
+library(dplyr)
+
+df <- read.csv("pml-training.csv", na.strings = "#DIV/0")
+testing <- read.csv("pml-testing.csv")
+summary(df)
+sapply(df, class)
+
+df <- df[,8:160]
+asNumeric <- function(x) as.numeric(as.character(x))
+df[,-153] <- lapply(df[,-153], asNumeric)
+df <- select(df,-contains("avg_"), -contains("var_"), -contains("stddev_"), -contains("min_"), -contains("max_"))
+df <- df[ , ! apply( df, 2 , function(x) any(is.na(x)) ) ]
+```
+
+
+#### Building the model
+
+To build our models we split the dataframe in a training and a test/validate set.
+
+```{r, echo=TRUE}
+set.seed(123)
+inTrain <- createDataPartition(y=df$classe,p=0.70, list=FALSE)
+training <- df[inTrain,]
+validate <- df[-inTrain,]
+```
+
+
+We will train the models using 5-fold cross validation. We will train three models: tree (modtree), random forest (modrf) and boosting (modboost).
+
+```{r, echo=TRUE}
+cv3 <- trainControl(method="cv",number=5,allowParallel=TRUE,verboseIter=TRUE)
+```
+
+
+```{r chunk_modeltree, echo=TRUE, results='hide', warning=TRUE, cache=TRUE, message=FALSE}
+set.seed(123)
+modtree <- train(classe~., data=training, method="rpart",trControl=cv3)
+
+```
+
+
+```{r chunk_modelrf, echo=TRUE, results = 'hide', warning=TRUE, cache=TRUE, message=FALSE}
+set.seed(123)
+modrf <- train(classe~., data=training, method="rf",trControl=cv3)
+
+```
+
+```{r chunk_modelboost, echo=TRUE, results = 'hide', warning=TRUE, cache=TRUE, message=FALSE}
+set.seed(123)
+modboost <- train(classe~., data = training, method="gbm", verbose = FALSE, trControl = cv3)
+```
+
+In the tables below the results of the tree models are shown. The tree model performs not that well with an accuracy of 56.1%. The boosting model does the job better (accuracy of 96.0%), but it cannot defeat the random forest model with an accuracy of 99.1%. We drop the tree and boosting model and go further with the random forest model.
+
+```{r , echo=TRUE, warning=FALSE, message=FALSE}
+kable(modtree$results, digits=3)
+kable(modrf$results, digits=3)
+kable(modboost$results, digits=3)
+```
+
+#### Validating the random forest model
+
+We will now calculate the out of sample error of the random forest model. We do this by validating the model with the 30% of the data set that was not used for training the model.
+
+```{r , echo=TRUE, warning=FALSE, message=FALSE}
+prf <- predict(modrf, validate)
+cfmatrix <- confusionMatrix(prf, validate$classe)
+kable(cfmatrix$table, digits = 3)
+print(cfmatrix$overall, digits = 3)
+```
+
+The random forest has an accuracy of 99.3% on the validate data set. Hence the out of sample error rate is estimated at 0.7%. Given this low error rate we will apply this model on the testing data set.
+
+
+#### Applying the model
+
+Applying the random forest model on the testing data set gives following predictions:
+
+```{r , echo=TRUE, warning=FALSE, message=FALSE}
+predfinal <- predict(modrf, testing)
+predfinal
+```
+
+
